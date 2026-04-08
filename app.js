@@ -16,6 +16,8 @@ let scheduledSmsItems = [];
 let bootstrapLoading = false;
 let activeMutations = 0;
 let autoRefreshTimer = null;
+let smsLogsLoading = false;
+let smsLogRequestSeq = 0;
 const AUTO_REFRESH_MS = 15000;
 
 async function apiFetch(url, options = {}) {
@@ -112,6 +114,8 @@ async function doPinLogin() {
 }
 async function loadFromBackend(options = {}) {
   const silent = !!options.silent;
+  const modalWasOpen = document.getElementById('car-modal')?.classList.contains('active');
+  const activeModalTab = modalWasOpen ? getActiveModalTab() : 'info';
   try {
     if (!silent) {
       bootstrapLoading = true;
@@ -137,8 +141,9 @@ async function loadFromBackend(options = {}) {
     loadCarsGrid();
     loadOilsPage();
     renderOilSel('oil-name');
-    renderSmsLog(Array.isArray(data.logs) ? data.logs : getSmsLog());
+    renderSmsLog(Array.isArray(data.logs) ? data.logs : DB.get(SMS_LOG_KEY, []));
     refreshScheduleList();
+    if (curCar && modalWasOpen) openModal({ tab: activeModalTab });
     if (document.getElementById('sms')?.classList.contains('active')) loadSmsPage();
   } finally {
     bootstrapLoading = false;
@@ -576,6 +581,11 @@ async function sendSms(text, phone, scheduleAt = '') {
 const SMS_LOG_KEY = 'sms_log';
 const SMS_LOG_MAX = 50; // Maksimum 50 ta log saqlash
 
+function setSmsLogLoading(message = 'Xabarlar tarixi yuklanmoqda...') {
+  const el = document.getElementById('sms-log-list');
+  if (el) el.innerHTML = loadingHtml(message);
+}
+
 function addSmsLog(entry) {
   // entry: { ok, phone, message, service, car_name, error, via }
   const log = DB.get(SMS_LOG_KEY, []);
@@ -607,11 +617,12 @@ function smsTypeLabel(type = '') {
 function renderSmsLog(items = null) {
   const el = document.getElementById('sms-log-list');
   if (!el) return;
-  if (bootstrapLoading && (!items || !items.length)) {
+  if ((bootstrapLoading || smsLogsLoading) && (!items || !items.length)) {
     el.innerHTML = loadingHtml('Xabarlar tarixi yuklanmoqda...');
     return;
   }
-  const log = Array.isArray(items) ? items : DB.get(SMS_LOG_KEY, []);
+  const log = Array.isArray(items) ? items.filter(Boolean) : DB.get(SMS_LOG_KEY, []);
+  if (Array.isArray(items)) DB.set(SMS_LOG_KEY, log.slice(0, SMS_LOG_MAX));
   if (log.length === 0) {
     el.innerHTML = '<div class="sms-log-empty">Hozircha xabar yuborilmagan</div>';
     return;
@@ -628,6 +639,30 @@ function renderSmsLog(items = null) {
       <div class="sms-log-msg">${escHtml(e.message || '')}${e.error ? `\nXato: ${escHtml(e.error)}` : ''}</div>
     </div>
   `).join('');
+}
+
+async function refreshSmsLogsFromBackend(options = {}) {
+  const showLoading = options.showLoading !== false;
+  const requestId = ++smsLogRequestSeq;
+  if (showLoading) {
+    smsLogsLoading = true;
+    setSmsLogLoading('Xabarlar tarixi yuklanmoqda...');
+  }
+  try {
+    const logsResp = await apiJson(`${BACKEND_URL}/api/sms/logs?limit=80`);
+    if (requestId !== smsLogRequestSeq) return;
+    if (logsResp.ok && Array.isArray(logsResp.logs)) {
+      renderSmsLog(logsResp.logs);
+    } else {
+      renderSmsLog([]);
+    }
+  } catch (e) {
+    if (requestId !== smsLogRequestSeq) return;
+    console.warn("SMS tarixini yuklashda xato:", e.message);
+    renderSmsLog(DB.get(SMS_LOG_KEY, []));
+  } finally {
+    if (requestId === smsLogRequestSeq) smsLogsLoading = false;
+  }
 }
 
 
@@ -796,7 +831,7 @@ function switchSmsTab(tab, btn) {
   const el = document.getElementById('sms-tab-' + tab);
   if (el) el.classList.add('active');
   // Log tabiga o'tganda yangilash
-  if (tab === 'logs') renderSmsLog();
+  if (tab === 'logs') void refreshSmsLogsFromBackend({ showLoading: true });
 }
 
 // Token ko'rish/yashirish
@@ -1510,8 +1545,9 @@ async function editorTestSms() {
 }
 
 // ===== CAR MODAL =====
-function openModal() {
+function openModal(options = {}) {
   if (!curCar) return;
+  const targetTab = options.tab || 'info';
   const oi  = oilInt(curCar.oil_name);
   const oU  = (curCar.total_km - curCar.oil_change_km) / oi;
   const aU  = (curCar.total_km - curCar.antifreeze_km) / (curCar.antifreeze_interval || 30000);
@@ -1552,7 +1588,7 @@ function openModal() {
     hint.style.display = 'block';
   } else hint.style.display = 'none';
 
-  switchTab('info');
+  switchTab(targetTab);
   document.getElementById('car-modal').classList.add('active');
 }
 
@@ -1587,6 +1623,10 @@ function loadHistory() {
 function switchTab(name) {
   document.querySelectorAll('.tb').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tp').forEach(p => p.classList.toggle('active', p.id === name + '-tab'));
+  if (name === 'history') loadHistory();
+}
+function getActiveModalTab() {
+  return document.querySelector('.tb.active')?.dataset.tab || 'info';
 }
 document.querySelectorAll('.tb').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
 document.getElementById('modal-close').addEventListener('click', () => document.getElementById('car-modal').classList.remove('active'));
