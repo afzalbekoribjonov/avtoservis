@@ -1131,16 +1131,18 @@ app.post('/api/sms/run-queue', async (req, res) => {
   res.json({ ok: true });
 });
 
+// Keep lightweight health checks ahead of static/index handling so HEAD
+// requests return fast 200 responses without touching index.html.
+app.head('/', (req, res) => res.status(200).end());
+app.head('/uptime', (req, res) => res.status(200).end());
+app.get('/uptime', (req, res) => res.status(200).json({ status: 'ok', time: new Date().toISOString() }));
+
 app.use(express.static(path.join(__dirname)));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'index.html')));
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
   res.status(500).json({ ok: false, error: 'Server xatosi', detail: err.message });
 });
-
-// Lightweight uptime check for monitoring (UptimeRobot, etc.)
-app.head('/', (req, res) => res.status(200).end());
-app.get('/uptime', (req, res) => res.status(200).json({ status: 'ok', time: new Date().toISOString() }));
 
 setInterval(() => { processScheduledQueue().catch(console.error); }, SCHEDULER_POLL_SECONDS * 1000);
 setInterval(() => { processAutoReminders().catch(console.error); }, AUTO_CHECK_MINUTES * 60 * 1000);
