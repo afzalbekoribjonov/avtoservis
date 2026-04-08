@@ -479,6 +479,21 @@ function getAutoDueState(car, svc, oils) {
     due_by_estimate: Number.isFinite(estimatedTs) && estimatedTs <= Date.now(),
   };
 }
+function getReminderCycleKey(car, serviceKey = '', interval = 0) {
+  const key = String(serviceKey || '').trim();
+  const cycleStartKm = getReminderCycleStartKm(car, key);
+  const normalizedInterval = parseMaybeNumber(interval, 0);
+  return `${car.id}_${key}_${cycleStartKm}_${normalizedInterval}`;
+}
+function getReminderCycleStartKm(car, serviceKey = '') {
+  const key = String(serviceKey || '').trim();
+  const cycleStartKm = key === 'oil'
+    ? parseMaybeNumber(car.oil_change_km, car.total_km)
+    : key === 'gearbox'
+      ? parseMaybeNumber(car.gearbox_km, car.total_km)
+      : parseMaybeNumber(car.total_km, 0);
+  return cycleStartKm;
+}
 function sanitizeQueueItem(item = {}) {
   return {
     ...item,
@@ -668,7 +683,6 @@ async function processAutoReminders() {
     if (!config.enabled || !activeToken) return;
     const cars = (await getCars()).cars;
     const oils = (await getOils()).oils;
-    const dateKey = nowDate();
     for (const car of cars) {
       if (!car.phone_number) continue;
       const checks = [
@@ -678,13 +692,22 @@ async function processAutoReminders() {
       for (const svc of checks) {
         const dueState = getAutoDueState(car, svc, oils);
         if (!(dueState.due_by_km || dueState.due_by_estimate)) continue;
-        const reminderKey = `${dateKey}_${car.id}_${svc.key}`;
+        const reminderKey = getReminderCycleKey(car, svc.key, dueState.interval);
         const exists = await fbGet(`auto_sms_sent/${reminderKey}`);
         if (exists.ok && exists.data) continue;
         const serviceName = getServicePhrase(svc.key, 'due', car);
         const text = buildApprovedServiceReminderMessage(car, serviceName);
         const sent = await sendMessageWithConfig({ phone: car.phone_number, message: text, type: 'auto_check', meta: { service_key: svc.key, car_name: car.car_name, estimated_due_at: dueState.estimated_due_at, remaining_km: dueState.remainingKm } });
-        if (sent.ok) await fbPut(`auto_sms_sent/${reminderKey}`, { id: reminderKey, car_id: car.id, service_key: svc.key, created_at: nowIso() });
+        if (sent.ok) {
+          await fbPut(`auto_sms_sent/${reminderKey}`, {
+            id: reminderKey,
+            car_id: car.id,
+            service_key: svc.key,
+            cycle_start_km: getReminderCycleStartKm(car, svc.key),
+            interval: dueState.interval,
+            created_at: nowIso(),
+          });
+        }
         await sleep(250);
       }
     }

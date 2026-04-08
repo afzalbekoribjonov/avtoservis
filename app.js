@@ -580,6 +580,12 @@ async function sendSms(text, phone, scheduleAt = '') {
 // Yuborilgan/xato SMS larni UI da ko'rsatish uchun
 const SMS_LOG_KEY = 'sms_log';
 const SMS_LOG_MAX = 50; // Maksimum 50 ta log saqlash
+function smsLogSortTs(entry = {}) {
+  const rawTs = Number(entry.ts);
+  if (Number.isFinite(rawTs) && rawTs > 0) return rawTs;
+  const parsed = new Date(entry.timestamp || 0).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
 function setSmsLogLoading(message = 'Xabarlar tarixi yuklanmoqda...') {
   const el = document.getElementById('sms-log-list');
@@ -621,7 +627,8 @@ function renderSmsLog(items = null) {
     el.innerHTML = loadingHtml('Xabarlar tarixi yuklanmoqda...');
     return;
   }
-  const log = Array.isArray(items) ? items.filter(Boolean) : DB.get(SMS_LOG_KEY, []);
+  const log = (Array.isArray(items) ? items.filter(Boolean) : DB.get(SMS_LOG_KEY, []))
+    .sort((a, b) => smsLogSortTs(b) - smsLogSortTs(a));
   if (Array.isArray(items)) DB.set(SMS_LOG_KEY, log.slice(0, SMS_LOG_MAX));
   if (log.length === 0) {
     el.innerHTML = '<div class="sms-log-empty">Hozircha xabar yuborilmagan</div>';
