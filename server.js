@@ -1138,6 +1138,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ ok: false, error: 'Server xatosi', detail: err.message });
 });
 
+// Lightweight uptime check for monitoring (UptimeRobot, etc.)
+app.head('/', (req, res) => res.status(200).end());
+app.get('/uptime', (req, res) => res.status(200).json({ status: 'ok', time: new Date().toISOString() }));
+
 setInterval(() => { processScheduledQueue().catch(console.error); }, SCHEDULER_POLL_SECONDS * 1000);
 setInterval(() => { processAutoReminders().catch(console.error); }, AUTO_CHECK_MINUTES * 60 * 1000);
 setInterval(() => { syncRecentStatuses().catch(console.error); }, STATUS_SYNC_SECONDS * 1000);

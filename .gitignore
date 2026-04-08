@@ -15,3 +15,7 @@ yarn-error.log*
 build
 .dist
 .cache
+
+# Firebase credentials (NEVER commit!)
+*firebase-adminsdk*.json
+gilamuz-8308f-firebase-adminsdk-fbsvc-ce275256e5.json
