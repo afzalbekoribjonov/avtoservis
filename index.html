@@ -424,11 +424,14 @@
             <div class="fc sms-log-panel">
               <div class="sms-log-header-bar">
                 <div class="fct" style="margin-bottom:0">Yuborilgan xabarlar</div>
-                
               </div>
               <p style="font-size:12px;color:var(--text2);margin-bottom:10px;margin-top:8px">
                 Yuborilgan, rejalashtirilgan va yetib bormagan xabarlar shu yerda ko'rinadi.
               </p>
+              <div class="fg sms-log-search-wrap">
+                <label for="sms-log-search">Tarixdan qidirish</label>
+                <input type="text" id="sms-log-search" placeholder="Telefon, mashina, status yoki matn..." autocomplete="off">
+              </div>
               <div id="sms-log-list">
                 <div class="sms-log-empty">Hozircha xabar yuborilmagan</div>
               </div>
@@ -531,7 +534,9 @@
       <div id="history-tab" class="tp"><div id="modal-history"></div></div>
       <div id="update-tab" class="tp">
         <div class="fg"><label>Hozirgi Probeg (KM)</label><input type="number" id="modal-km" placeholder="KM"></div>
+        <div class="fg"><label>Kunlik O'rtacha KM</label><input type="number" id="modal-daily-km" placeholder="Masalan, 80" min="1"></div>
         <button class="btn bp mb8" id="btn-update-km">📍 Probeg Yangilash</button>
+        <button class="btn bghost mb8" id="btn-update-daily-km">📅 Kunlik KM ni Saqlash</button>
         <hr class="divider">
         <div class="fct" style="margin-bottom:12px">⚙️ Xizmat Almashtirish</div>
         <div class="fg">

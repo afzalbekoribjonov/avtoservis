@@ -93,6 +93,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .cinfo{flex:1;min-width:0}
 .cname{font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:1px}
 .cmeta{font-size:11px;color:var(--text2);margin-bottom:4px}
+.cdue{font-size:11px;color:var(--accent);margin-bottom:5px;line-height:1.35}
 .cbadges{display:flex;gap:3px;font-size:13px;flex-wrap:wrap}
 
 /* ===== CARS GRID ===== */
@@ -237,6 +238,8 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
   text-align:center;padding:24px 0;
   color:var(--text3);font-size:13px;
 }
+.sms-log-search-wrap{margin-bottom:12px}
+.sms-log-search-wrap label{margin-bottom:6px}
 
 /* ===== MODAL ===== */
 .modal{display:none;position:fixed;inset:0;z-index:1000}
@@ -261,6 +264,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:v
 .pf{height:100%;background:var(--success);border-radius:3px;transition:width .5s}
 .pf.w{background:var(--warning)}.pf.d{background:var(--danger)}
 .skm{font-size:11px;color:var(--text2);margin-top:3px}
+.sdue{font-size:11px;color:var(--accent);margin-top:6px;line-height:1.45}
 
 /* ===== HISTORY ===== */
 .hi{display:flex;align-items:flex-start;gap:11px;padding:11px 0;border-bottom:1px solid var(--border)}

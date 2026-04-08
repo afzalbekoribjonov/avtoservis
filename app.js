@@ -218,6 +218,58 @@ document.getElementById('theme-btn').addEventListener('click', () => {
 
 // ===== HELPERS =====
 function oilInt(name) { const o = allOils.find(o => o.name === name); return o ? o.interval : 10000; }
+function formatDueDate(date) {
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return '';
+  return date.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+function getServiceForecast(car, serviceKey = '') {
+  const key = String(serviceKey || '').trim();
+  const totalKm = Number(car?.total_km || 0);
+  const dailyKm = Number(car?.daily_km || 0);
+  const configs = {
+    oil: { label: 'Dvigatel moyi', interval: oilInt(car?.oil_name), lastKm: Number(car?.oil_change_km || totalKm) },
+    antifreeze: { label: 'Antifriz', interval: Number(car?.antifreeze_interval || 30000), lastKm: Number(car?.antifreeze_km || totalKm) },
+    gearbox: { label: 'Karobka moyi', interval: Number(car?.gearbox_interval || 50000), lastKm: Number(car?.gearbox_km || totalKm) },
+    air_filter: { label: 'Havo filtri', interval: Number(car?.air_filter_interval || 15000), lastKm: Number(car?.air_filter_km || totalKm) },
+    cabin_filter: { label: 'Salon filtri', interval: Number(car?.cabin_filter_interval || 15000), lastKm: Number(car?.cabin_filter_km || totalKm) },
+    oil_filter: { label: 'Moy filtri', interval: Number(car?.oil_filter_interval || 10000), lastKm: Number(car?.oil_filter_km || totalKm) },
+  };
+  const cfg = configs[key];
+  if (!cfg) return { label: 'Xizmat', interval: 0, used: 0, remainingKm: 0, isDue: false, daysUntilDue: Number.POSITIVE_INFINITY, dueText: '—', shortText: '—' };
+  const interval = Math.max(0, Number(cfg.interval || 0));
+  const used = Math.max(0, totalKm - Number(cfg.lastKm || 0));
+  const remainingKm = Math.max(0, interval - used);
+  const isDue = interval > 0 && used >= interval;
+  let dueDate = null;
+  let daysUntilDue = Number.POSITIVE_INFINITY;
+  if (!isDue && remainingKm > 0 && dailyKm > 0) {
+    daysUntilDue = Math.max(0, Math.ceil(remainingKm / dailyKm));
+    dueDate = new Date(car?.updated_at || car?.added_at || Date.now());
+    dueDate.setDate(dueDate.getDate() + daysUntilDue);
+  } else if (isDue) {
+    daysUntilDue = 0;
+  }
+  const dueText = isDue
+    ? 'Muddat kelgan'
+    : dailyKm > 0 && dueDate
+      ? `Taxminiy muddat: ${formatDueDate(dueDate)} (${daysUntilDue} kun)`
+      : 'Taxminiy muddat hisoblanmadi';
+  const shortText = isDue
+    ? `${cfg.label}: muddat kelgan`
+    : dailyKm > 0 && dueDate
+      ? `${cfg.label}: ${formatDueDate(dueDate)}`
+      : `${cfg.label}: noma'lum`;
+  return { ...cfg, interval, used, remainingKm, isDue, daysUntilDue, dueDate, dueText, shortText };
+}
+function getNearestDueSummary(car) {
+  const forecasts = ['oil', 'gearbox', 'antifreeze', 'air_filter', 'cabin_filter', 'oil_filter'].map((key) => getServiceForecast(car, key));
+  const dueNow = forecasts.find((item) => item.isDue);
+  if (dueNow) return dueNow.shortText;
+  const nearest = forecasts
+    .filter((item) => Number.isFinite(item.daysUntilDue) && item.daysUntilDue >= 0)
+    .sort((a, b) => a.daysUntilDue - b.daysUntilDue)[0];
+  return nearest ? nearest.shortText : "Taxminiy muddat yo'q";
+}
 
 function carSt(car) {
   const oU  = (car.total_km - car.oil_change_km) / oilInt(car.oil_name);
@@ -392,11 +444,13 @@ function ciHTML(car) {
   const afU = (car.total_km - (car.air_filter_km   || car.total_km)) / (car.air_filter_interval   || 15000);
   const cfU = (car.total_km - (car.cabin_filter_km || car.total_km)) / (car.cabin_filter_interval || 15000);
   const ofU = (car.total_km - (car.oil_filter_km   || car.total_km)) / (car.oil_filter_interval   || 10000);
+  const dueSummary = getNearestDueSummary(car);
   return `<div class="ci ${s.cls}" data-id="${car.id}">
     <div class="cav">🚗</div>
     <div class="cinfo">
       <div class="cname">${car.car_name}</div>
       <div class="cmeta">${car.car_number} · ${car.total_km.toLocaleString()} km</div>
+      <div class="cdue">📅 ${escHtml(dueSummary)}</div>
       <div class="cbadges">${svcE(oU)}${svcE(aU)}${svcE(gU)}${svcE(afU)}${svcE(cfU)}${svcE(ofU)}</div>
     </div>
   </div>`;
@@ -432,12 +486,14 @@ function loadCarsGrid(q = '') {
     const afU = (car.total_km - (car.air_filter_km   || car.total_km)) / (car.air_filter_interval   || 15000);
     const cfU = (car.total_km - (car.cabin_filter_km || car.total_km)) / (car.cabin_filter_interval || 15000);
     const ofU = (car.total_km - (car.oil_filter_km   || car.total_km)) / (car.oil_filter_interval   || 10000);
+    const dueSummary = getNearestDueSummary(car);
     return `<div class="cc" data-id="${car.id}">
       <div class="cc-top">🚗<div class="cdot ${s.dot}"></div></div>
       <div class="cc-body">
         <div class="cn">${car.car_name}</div>
         <div class="cnum">${car.car_number}</div>
         <div class="ckm">🏁 ${car.total_km.toLocaleString()} km</div>
+        <div class="cdue">${escHtml(dueSummary)}</div>
         <div class="cst">${svcE(oU)}${svcE(aU)}${svcE(gU)}${svcE(afU)}${svcE(cfU)}${svcE(ofU)}</div>
       </div>
     </div>`;
@@ -619,6 +675,24 @@ function smsTypeLabel(type = '') {
   };
   return map[type] || type || 'Xabar';
 }
+function getSmsLogSearchTerm() {
+  return String(document.getElementById('sms-log-search')?.value || '').trim().toLowerCase();
+}
+function smsLogMatches(entry = {}, searchTerm = '') {
+  if (!searchTerm) return true;
+  const haystack = [
+    smsTypeLabel(entry.type || ''),
+    entry.phone || '',
+    entry.provider_status || '',
+    entry.via || '',
+    entry.car_name || '',
+    entry.message || '',
+    entry.error || '',
+    entry.service || '',
+    entry.queue_status || '',
+  ].join(' ').toLowerCase();
+  return haystack.includes(searchTerm);
+}
 
 function renderSmsLog(items = null) {
   const el = document.getElementById('sms-log-list');
@@ -630,11 +704,17 @@ function renderSmsLog(items = null) {
   const log = (Array.isArray(items) ? items.filter(Boolean) : DB.get(SMS_LOG_KEY, []))
     .sort((a, b) => smsLogSortTs(b) - smsLogSortTs(a));
   if (Array.isArray(items)) DB.set(SMS_LOG_KEY, log.slice(0, SMS_LOG_MAX));
+  const searchTerm = getSmsLogSearchTerm();
+  const filtered = log.filter((entry) => smsLogMatches(entry, searchTerm));
   if (log.length === 0) {
     el.innerHTML = '<div class="sms-log-empty">Hozircha xabar yuborilmagan</div>';
     return;
   }
-  el.innerHTML = log.map(e => `
+  if (!filtered.length) {
+    el.innerHTML = '<div class="sms-log-empty">Mos xabar topilmadi</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(e => `
     <div class="sms-log-item ${e.ok ? 'sms-log-ok' : 'sms-log-fail'}">
       <div class="sms-log-header">
         <span class="sms-log-status">${smsTypeLabel(e.type)}</span>
@@ -1565,23 +1645,32 @@ function openModal(options = {}) {
 
   document.getElementById('modal-car-info').innerHTML = `
     <h3>${curCar.car_name}</h3><p>${curCar.car_number}</p>
-    <p style="margin-top:4px;font-size:12px;opacity:.85">🏁 Probeg: <strong>${curCar.total_km.toLocaleString()} km</strong></p>`;
+    <p style="margin-top:4px;font-size:12px;opacity:.85">🏁 Probeg: <strong>${curCar.total_km.toLocaleString()} km</strong></p>
+    <p style="margin-top:4px;font-size:12px;opacity:.85">📅 Eng yaqin muddat: <strong>${escHtml(getNearestDueSummary(curCar))}</strong></p>`;
 
-  const svcBlock = (u, label, used, interval) => {
+  const svcBlock = (u, label, used, interval, dueText) => {
     const b = badgeOf(u);
     return `<div class="svi"><h4>${label}</h4><span class="badge ${b.c}">${b.t}</span>
       <div class="pb"><div class="pf ${b.b}" style="width:${Math.min(u*100,100).toFixed(1)}%"></div></div>
-      <div class="skm">${used.toLocaleString()} / ${interval.toLocaleString()} km</div></div>`;
+      <div class="skm">${used.toLocaleString()} / ${interval.toLocaleString()} km</div>
+      <div class="sdue">${escHtml(dueText)}</div></div>`;
   };
+  const oilForecast = getServiceForecast(curCar, 'oil');
+  const antifreezeForecast = getServiceForecast(curCar, 'antifreeze');
+  const gearboxForecast = getServiceForecast(curCar, 'gearbox');
+  const airFilterForecast = getServiceForecast(curCar, 'air_filter');
+  const cabinFilterForecast = getServiceForecast(curCar, 'cabin_filter');
+  const oilFilterForecast = getServiceForecast(curCar, 'oil_filter');
   document.getElementById('modal-services').innerHTML =
-    svcBlock(oU,  `🛢️ Dvigatel Moyi — <em style="font-weight:400;font-size:11px">${curCar.oil_name}</em>`, curCar.total_km - curCar.oil_change_km, oi) +
-    svcBlock(aU,  '🔵 Antifriz',    curCar.total_km - curCar.antifreeze_km,  curCar.antifreeze_interval  || 30000) +
-    svcBlock(gU,  '🟢 Karobka',     curCar.total_km - curCar.gearbox_km,     curCar.gearbox_interval     || 50000) +
-    svcBlock(afU, '💨 Havo Filtr',  curCar.total_km - (curCar.air_filter_km   || curCar.total_km), curCar.air_filter_interval   || 15000) +
-    svcBlock(cfU, '🌬️ Salon Filtr', curCar.total_km - (curCar.cabin_filter_km || curCar.total_km), curCar.cabin_filter_interval || 15000) +
-    svcBlock(ofU, '🔩 Moy Filtr',   curCar.total_km - (curCar.oil_filter_km   || curCar.total_km), curCar.oil_filter_interval   || 10000);
+    svcBlock(oU,  `🛢️ Dvigatel Moyi — <em style="font-weight:400;font-size:11px">${curCar.oil_name}</em>`, curCar.total_km - curCar.oil_change_km, oi, oilForecast.dueText) +
+    svcBlock(aU,  '🔵 Antifriz',    curCar.total_km - curCar.antifreeze_km,  curCar.antifreeze_interval  || 30000, antifreezeForecast.dueText) +
+    svcBlock(gU,  '🟢 Karobka',     curCar.total_km - curCar.gearbox_km,     curCar.gearbox_interval     || 50000, gearboxForecast.dueText) +
+    svcBlock(afU, '💨 Havo Filtr',  curCar.total_km - (curCar.air_filter_km   || curCar.total_km), curCar.air_filter_interval   || 15000, airFilterForecast.dueText) +
+    svcBlock(cfU, '🌬️ Salon Filtr', curCar.total_km - (curCar.cabin_filter_km || curCar.total_km), curCar.cabin_filter_interval || 15000, cabinFilterForecast.dueText) +
+    svcBlock(ofU, '🔩 Moy Filtr',   curCar.total_km - (curCar.oil_filter_km   || curCar.total_km), curCar.oil_filter_interval   || 10000, oilFilterForecast.dueText);
 
   document.getElementById('modal-km').value = curCar.total_km;
+  document.getElementById('modal-daily-km').value = curCar.daily_km || '';
   renderOilSel('modal-oil-select', curCar.oil_name);
   const svcSel = document.getElementById('modal-svc-type');
   const oilWrap = document.getElementById('modal-oil-wrap');
@@ -1642,18 +1731,39 @@ document.querySelector('.mo').addEventListener('click', () => document.getElemen
 // ===== CAR ACTIONS =====
 document.getElementById('btn-update-km').addEventListener('click', async () => {
   const km = parseInt(document.getElementById('modal-km').value);
+  const dailyKm = parseInt(document.getElementById('modal-daily-km').value, 10);
   if (!km || km < 0) { showToast("❌ KM to'g'ri kiriting", 'error'); return; }
+  if (!dailyKm || dailyKm < 1) { showToast("❌ Kunlik KM ni to'g'ri kiriting", 'error'); return; }
   busyStart();
   try {
     curCar.total_km = km;
+    curCar.daily_km = dailyKm;
     await fbSaveCar(curCar);
     await loadFromBackend();
     curCar = allCars.find(c => String(c.id) === String(curCar.id)) || curCar;
-    openModal();
+    openModal({ tab: 'update' });
     loadDashboard();
     showToast('✅ Probeg yangilandi!', 'success');
   } catch (e) {
     showToast(`❌ ${e.message || "Probegni saqlab bo'lmadi"}`, 'error');
+  } finally {
+    busyEnd();
+  }
+});
+document.getElementById('btn-update-daily-km').addEventListener('click', async () => {
+  const dailyKm = parseInt(document.getElementById('modal-daily-km').value, 10);
+  if (!dailyKm || dailyKm < 1) { showToast("❌ Kunlik KM ni to'g'ri kiriting", 'error'); return; }
+  busyStart();
+  try {
+    curCar.daily_km = dailyKm;
+    await fbSaveCar(curCar);
+    await loadFromBackend();
+    curCar = allCars.find(c => String(c.id) === String(curCar.id)) || curCar;
+    openModal({ tab: 'update' });
+    loadDashboard();
+    showToast("✅ Kunlik KM saqlandi!", 'success');
+  } catch (e) {
+    showToast(`❌ ${e.message || "Kunlik KM ni saqlab bo'lmadi"}`, 'error');
   } finally {
     busyEnd();
   }
@@ -1663,10 +1773,13 @@ document.getElementById('btn-change-svc').addEventListener('click', async () => 
   const type = document.getElementById('modal-svc-type').value;
   const oilName = document.getElementById('modal-oil-select').value || curCar.oil_name;
   const km = parseInt(document.getElementById('modal-km').value) || curCar.total_km;
+  const dailyKm = parseInt(document.getElementById('modal-daily-km').value, 10) || curCar.daily_km || 50;
+  if (!dailyKm || dailyKm < 1) { showToast("❌ Kunlik KM ni to'g'ri kiriting", 'error'); return; }
 
   busyStart();
   try {
     curCar.total_km = km;
+    curCar.daily_km = dailyKm;
     const field = { oil:'oil_change_km', antifreeze:'antifreeze_km', gearbox:'gearbox_km', air_filter:'air_filter_km', cabin_filter:'cabin_filter_km', oil_filter:'oil_filter_km' };
     if (field[type]) curCar[field[type]] = km;
     if (type === 'oil') curCar.oil_name = oilName;
@@ -1690,7 +1803,7 @@ document.getElementById('btn-change-svc').addEventListener('click', async () => 
     }
     await loadFromBackend();
     curCar = allCars.find(c => String(c.id) === String(curCar.id)) || curCar;
-    openModal();
+    openModal({ tab: 'update' });
     showToast(notice, 'success');
   } catch (e) {
     showToast(`❌ ${e.message || "Saqlashda xato"}`, 'error');
@@ -1998,6 +2111,7 @@ async function cancelScheduledSms(id) {
     showToast('❌ Bekor qilib bo‘lmadi', 'error');
   }
 }
+document.getElementById('sms-log-search')?.addEventListener('input', () => renderSmsLog());
 
 // ===== INIT =====
 function init() {
