@@ -1720,6 +1720,15 @@ document.getElementById('close-settings').addEventListener('click', closeSetting
 document.getElementById('settings-overlay').addEventListener('click', closeSettings);
 function closeSettings() { document.getElementById('settings-panel').classList.remove('open'); }
 
+function removeAppSessionCache() {
+  const keys = [];
+  for (let i = 0; i < sessionStorage.length; i += 1) {
+    const key = sessionStorage.key(i);
+    if (key && key.startsWith('mt_')) keys.push(key);
+  }
+  keys.forEach((key) => sessionStorage.removeItem(key));
+}
+
 async function saveThresholds() {
   const w = parseFloat(document.getElementById('setting-warn').value);
   const d = parseFloat(document.getElementById('setting-danger').value);
@@ -1734,26 +1743,198 @@ async function saveThresholds() {
     busyEnd();
   }
 }
-function exportData() {
-  const a = document.createElement('a');
-  a.href = 'data:application/json,' + encodeURIComponent(JSON.stringify({ cars: allCars, oils: allOils, sms: smsConfig, cfg }, null, 2));
-  a.download = 'moytrack-backup.json'; a.click();
-  showToast('✅ Eksport qilindi', 'success');
+function exportServiceReportRows(car) {
+  const services = [
+    { key: 'oil', label: 'Dvigatel moyi', icon: '🛢️', lastKm: car.oil_change_km, interval: oilInt(car.oil_name), extra: car.oil_name ? ` · ${car.oil_name}` : '' },
+    { key: 'antifreeze', label: 'Antifriz', icon: '🧊', lastKm: car.antifreeze_km, interval: car.antifreeze_interval || 30000, extra: '' },
+    { key: 'gearbox', label: 'Karobka moyi', icon: '⚙️', lastKm: car.gearbox_km, interval: car.gearbox_interval || 50000, extra: '' },
+    { key: 'air_filter', label: 'Havo filtri', icon: '💨', lastKm: car.air_filter_km || car.total_km, interval: car.air_filter_interval || 15000, extra: '' },
+    { key: 'cabin_filter', label: 'Salon filtri', icon: '🌬️', lastKm: car.cabin_filter_km || car.total_km, interval: car.cabin_filter_interval || 15000, extra: '' },
+    { key: 'oil_filter', label: 'Moy filtri', icon: '🔩', lastKm: car.oil_filter_km || car.total_km, interval: car.oil_filter_interval || 10000, extra: '' },
+  ];
+  return services.map((svc) => {
+    const used = Math.max(0, Number(car.total_km || 0) - Number(svc.lastKm || 0));
+    const interval = Math.max(0, Number(svc.interval || 0));
+    const remaining = Math.max(0, interval - used);
+    const ratio = interval > 0 ? used / interval : 0;
+    const state = ratio >= DPCT ? 'Muddat kelgan' : ratio >= WPCT ? 'Tez orada kerak' : 'Yaxshi';
+    const stateClass = ratio >= DPCT ? 'danger' : ratio >= WPCT ? 'warn' : 'ok';
+    return `
+      <div class="service-row">
+        <div class="service-main">
+          <div class="service-name">${svc.icon} ${escHtml(svc.label)}${escHtml(svc.extra)}</div>
+          <div class="service-meta">
+            Oxirgi servis: ${Number(svc.lastKm || 0).toLocaleString('uz-UZ')} km
+            <span>•</span>
+            Interval: ${interval.toLocaleString('uz-UZ')} km
+            <span>•</span>
+            Sarflangan: ${used.toLocaleString('uz-UZ')} km
+            <span>•</span>
+            Qolgan: ${remaining.toLocaleString('uz-UZ')} km
+          </div>
+        </div>
+        <div class="service-badge ${stateClass}">${state}</div>
+      </div>`;
+  }).join('');
 }
-async function confirmClear() {
-  if (!confirm("Barcha ma'lumotlarni o'chirasizmi?")) return;
+function exportHistoryRows(car) {
+  const history = Array.isArray(car.history) ? [...car.history].filter(Boolean) : [];
+  history.sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+  if (!history.length) return '<div class="history-empty">Tarix yozuvlari hozircha yo‘q.</div>';
+  return history.slice(0, 8).map((item) => {
+    const meta = SVC_META[String(item.type || '').trim()] || {};
+    const label = meta.label || 'Xizmat';
+    const when = new Date(item.date || Date.now()).toLocaleString('uz-UZ');
+    const oilPart = item.oil_name ? ` · ${escHtml(item.oil_name)}` : '';
+    return `<div class="history-row">
+      <strong>${meta.icon || '🔧'} ${escHtml(label)}${oilPart}</strong>
+      <span>${Number(item.km || 0).toLocaleString('uz-UZ')} km · ${when}</span>
+    </div>`;
+  }).join('');
+}
+function buildExportHtml() {
+  const createdAt = new Date().toLocaleString('uz-UZ');
+  const counts = { urgent: 0, warning: 0, good: 0 };
+  allCars.forEach((car) => {
+    const state = carSt(car);
+    if (state.cls === 'su') counts.urgent += 1;
+    else if (state.cls === 'sw') counts.warning += 1;
+    else counts.good += 1;
+  });
+  const carsHtml = allCars.length
+    ? [...allCars]
+      .sort((a, b) => String(a.car_name || '').localeCompare(String(b.car_name || ''), 'uz'))
+      .map((car) => `
+        <section class="car-card">
+          <div class="car-head">
+            <div>
+              <h2>${escHtml(car.car_name || 'Nomsiz mashina')}</h2>
+              <div class="car-sub">${escHtml(car.car_number || 'Raqam yo‘q')} · ${escHtml(car.phone_number || 'Telefon yo‘q')}</div>
+            </div>
+            <div class="car-km">${Number(car.total_km || 0).toLocaleString('uz-UZ')} km</div>
+          </div>
+          <div class="car-grid">
+            <div class="info-box">
+              <div class="ibox-title">Asosiy ma’lumot</div>
+              <div class="kv"><span>Kunlik o‘rtacha yo‘l</span><strong>${Number(car.daily_km || 0).toLocaleString('uz-UZ')} km</strong></div>
+              <div class="kv"><span>Moy turi</span><strong>${escHtml(car.oil_name || 'Kiritilmagan')}</strong></div>
+              <div class="kv"><span>Qo‘shilgan sana</span><strong>${new Date(car.added_at || Date.now()).toLocaleString('uz-UZ')}</strong></div>
+              <div class="kv"><span>Oxirgi yangilanish</span><strong>${new Date(car.updated_at || car.added_at || Date.now()).toLocaleString('uz-UZ')}</strong></div>
+            </div>
+            <div class="info-box">
+              <div class="ibox-title">Servis holati</div>
+              ${exportServiceReportRows(car)}
+            </div>
+          </div>
+          <div class="history-box">
+            <div class="ibox-title">Oxirgi tarix</div>
+            ${exportHistoryRows(car)}
+          </div>
+        </section>`)
+      .join('')
+    : '<div class="empty-report">Hozircha mashina ma’lumotlari yo‘q.</div>';
+  return `<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoyTrack Hisobot</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: "Segoe UI", Tahoma, sans-serif; background: #f4f1ea; color: #1f2937; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 28px 18px 56px; }
+    .hero { background: linear-gradient(135deg, #16324f, #295c7a); color: #fff; border-radius: 24px; padding: 28px; box-shadow: 0 18px 50px rgba(22, 50, 79, 0.18); }
+    .hero h1 { margin: 0 0 10px; font-size: 32px; }
+    .hero p { margin: 0; opacity: 0.92; line-height: 1.5; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin: 22px 0 26px; }
+    .stat { background: #fff; border-radius: 18px; padding: 18px; box-shadow: 0 8px 24px rgba(31, 41, 55, 0.08); }
+    .stat strong { display: block; font-size: 28px; margin-bottom: 6px; }
+    .cars { display: grid; gap: 20px; }
+    .car-card { background: #fff; border-radius: 22px; padding: 22px; box-shadow: 0 10px 28px rgba(31, 41, 55, 0.08); }
+    .car-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 18px; }
+    .car-head h2 { margin: 0 0 6px; font-size: 24px; }
+    .car-sub { color: #5b6473; }
+    .car-km { background: #eef6ff; color: #16324f; border-radius: 14px; padding: 10px 14px; font-weight: 700; white-space: nowrap; }
+    .car-grid { display: grid; grid-template-columns: 1fr 1.4fr; gap: 18px; }
+    .info-box, .history-box { background: #faf8f4; border: 1px solid #ebe5db; border-radius: 18px; padding: 16px; }
+    .ibox-title { font-size: 15px; font-weight: 700; margin-bottom: 12px; color: #16324f; }
+    .kv { display: flex; justify-content: space-between; gap: 14px; padding: 9px 0; border-bottom: 1px dashed #ddd4c8; }
+    .kv:last-child { border-bottom: 0; }
+    .kv span { color: #5b6473; }
+    .service-row { display: flex; justify-content: space-between; gap: 14px; padding: 12px 0; border-bottom: 1px dashed #ddd4c8; }
+    .service-row:last-child { border-bottom: 0; }
+    .service-name { font-weight: 700; margin-bottom: 5px; }
+    .service-meta { color: #5b6473; font-size: 13px; line-height: 1.5; }
+    .service-meta span { margin: 0 6px; color: #b3aa9c; }
+    .service-badge { align-self: flex-start; border-radius: 999px; padding: 7px 12px; font-size: 12px; font-weight: 700; }
+    .service-badge.ok { background: #e7f7ed; color: #1f7a45; }
+    .service-badge.warn { background: #fff2d9; color: #9a6700; }
+    .service-badge.danger { background: #fde8e8; color: #b42318; }
+    .history-row { display: flex; justify-content: space-between; gap: 14px; padding: 10px 0; border-bottom: 1px dashed #ddd4c8; }
+    .history-row:last-child { border-bottom: 0; }
+    .history-row span { color: #5b6473; text-align: right; }
+    .history-empty, .empty-report { color: #6b7280; }
+    @media (max-width: 820px) {
+      .car-grid { grid-template-columns: 1fr; }
+      .car-head, .history-row, .kv, .service-row { flex-direction: column; }
+      .history-row span { text-align: left; }
+      .car-km { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>MoyTrack hisobot</h1>
+      <p>Yaratilgan vaqt: ${escHtml(createdAt)}. Ushbu fayl mashinalar, ularning hozirgi probegi, servis holati va oxirgi tarix yozuvlarini oddiy ko‘rinishda ko‘rsatadi.</p>
+    </section>
+    <section class="stats">
+      <div class="stat"><strong>${allCars.length}</strong>Jami mashina</div>
+      <div class="stat"><strong>${counts.urgent}</strong>Shoshilinch e’tibor kerak</div>
+      <div class="stat"><strong>${counts.warning}</strong>Tez orada servis kerak</div>
+      <div class="stat"><strong>${counts.good}</strong>Holati yaxshi</div>
+    </section>
+    <section class="cars">${carsHtml}</section>
+  </div>
+</body>
+</html>`;
+}
+function exportData() {
+  const html = buildExportHtml();
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `moytrack-hisobot-${new Date().toISOString().slice(0, 10)}.html`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  showToast('✅ Hisobot yuklab olindi', 'success');
+}
+async function logoutUser() {
+  if (!confirm("Chiqishni tasdiqlaysizmi?")) return;
   busyStart();
   try {
-    await apiOk(`${BACKEND_URL}/api/admin/clear-data`, { method: 'POST' });
-    sessionStorage.clear();
+    await apiOk(`${BACKEND_URL}/api/auth/logout`, { method: 'POST' });
+    removeAppSessionCache();
     allCars = [];
-    allOils = [];
+    curCar = null;
     scheduledSmsItems = [];
-    DB.set('sms_cache', {});
+    document.getElementById('car-modal')?.classList.remove('active');
+    document.getElementById('pin-input').value = '';
+    const status = document.getElementById('pin-status');
+    if (status) { status.textContent = ''; status.className = 'pin-status'; }
     closeSettings();
-    await reloadDataAfterChange("✅ Barcha ma'lumotlar tozalandi");
+    navigateTo('home');
+    loadDashboard();
+    loadCarsGrid();
+    renderSmsLog([]);
+    refreshScheduleList();
+    lockApp();
+    document.getElementById('pin-input')?.focus();
+    showToast('✅ Chiqildi', 'success');
   } catch (e) {
-    showToast(`❌ ${e.message || "Tozalashda xato"}`, 'error');
+    showToast(`❌ ${e.message || "Chiqib bo'lmadi"}`, 'error');
   } finally {
     busyEnd();
   }
