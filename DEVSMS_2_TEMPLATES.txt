@@ -1,0 +1,16 @@
+1) service_done
+Hurmatli mijoz,
+Onix (40K111CC) avtomobili bo'yicha quyidagi ma'lumot qayd etildi: "Moy Zic 10W-40 almashtirildi"
+Sana: 08.04.2026
+Joriy probeg: 84500 km
+
+2) service_reminder
+Hurmatli mijoz, Cobalt (01A123BC) avtomobili bo'yicha moy Zic 10W-40 ni almashtirish tavsiya etiladi.
+Sana: 08.04.2026.
+Joriy probeg: 84500 km.
+Manzil: Avto Oil Beshariq, mo'ljal: tekstil yonida
+
+Izoh:
+- SMS faqat ikki tur uchun yuboriladi: dvigatel moyi va karobka moyi.
+- Qolgan xizmatlar faqat avtomobil tarixida saqlanadi.
+- Xizmat bajarildi shablonida service_name qiymati qo'shtirnoq ichida yuboriladi.
