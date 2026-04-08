@@ -1951,7 +1951,7 @@ function buildExportHtml() {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MoyTrack Hisobot</title>
+  <title>Avto Oil Beshariq Hisobot</title>
   <style>
     :root { color-scheme: light; }
     * { box-sizing: border-box; }
@@ -1999,7 +1999,7 @@ function buildExportHtml() {
 <body>
   <div class="wrap">
     <section class="hero">
-      <h1>MoyTrack hisobot</h1>
+      <h1>Avto Oil Beshariq hisobot</h1>
       <p>Yaratilgan vaqt: ${escHtml(createdAt)}. Ushbu fayl mashinalar, ularning hozirgi probegi, servis holati va oxirgi tarix yozuvlarini oddiy ko‘rinishda ko‘rsatadi.</p>
     </section>
     <section class="stats">
