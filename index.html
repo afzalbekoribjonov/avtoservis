@@ -569,6 +569,30 @@
     </div>
   </div>
 
+  <div id="delete-pin-modal" class="confirm-modal">
+    <div id="delete-pin-overlay" class="confirm-backdrop"></div>
+    <div class="confirm-card" role="dialog" aria-modal="true" aria-labelledby="delete-pin-title">
+      <button class="confirm-close" id="delete-pin-close" type="button" aria-label="Yopish">&times;</button>
+      <div class="confirm-head">
+        <div class="confirm-icon">🗑️</div>
+        <div>
+          <h3 id="delete-pin-title">Mashinani o‘chirish</h3>
+          <p id="delete-pin-car-title">—</p>
+        </div>
+      </div>
+      <p class="confirm-text" id="delete-pin-car-text">Ushbu mashina ma'lumotlar bazasidan butunlay o'chadi.</p>
+      <div class="fg confirm-field">
+        <label for="delete-pin-input">Tasdiqlash uchun PIN kod</label>
+        <input id="delete-pin-input" class="pin-input-inline" type="password" inputmode="numeric" placeholder="PIN kod" autocomplete="off">
+      </div>
+      <div id="delete-pin-status" class="confirm-status"></div>
+      <div class="confirm-actions">
+        <button id="delete-pin-cancel" class="confirm-btn ghost" type="button">Bekor qilish</button>
+        <button id="delete-pin-submit" class="confirm-btn danger" type="button">PIN bilan o‘chirish</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast"></div>
 </div>
 <script src="app.js"></script>

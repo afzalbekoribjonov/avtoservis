@@ -316,9 +316,15 @@ function startAutoRefresh() {
 
 // ===== BACKEND — SAQLASH =====
 
-async function fbSaveCar(car) {
+async function fbCreateCar(car) {
   if (!isAuthenticated) throw new Error('Kirish talab qilinadi');
   return apiOk(`${BACKEND_URL}/api/cars`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(car) });
+}
+
+async function fbSaveCar(car) {
+  if (!isAuthenticated) throw new Error('Kirish talab qilinadi');
+  if (car?.id == null) return fbCreateCar(car);
+  return apiOk(`${BACKEND_URL}/api/cars/${car.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(car) });
 }
 
 async function fbDeleteCar(carId) {
@@ -806,7 +812,7 @@ document.getElementById('add-car-form').addEventListener('submit', async e => {
   if (!name || !num || !oil) { showToast("❌ Barcha maydonlarni to'ldiring", 'error'); return; }
 
   const car = {
-    id: DB.nextId('car'), car_name: name, car_number: num,
+    car_name: name, car_number: num,
     daily_km:             parseInt(document.getElementById('daily-km').value) || 50,
     phone_number:         document.getElementById('phone-number').value.trim(),
     oil_name: oil, total_km: km,
@@ -839,7 +845,7 @@ document.getElementById('add-car-form').addEventListener('submit', async e => {
   busyStart();
   if (submitBtn) submitBtn.disabled = true;
   try {
-    await fbSaveCar(car);
+    await fbCreateCar(car);
     let notice = "✅ Mashina qo'shildi!";
     const smsTypes = checkedKeys.filter((key) => supportsSmsForService(key));
     if (smsConfig.enabled && smsConfig.has_token && car.phone_number && smsTypes.length) {
@@ -883,7 +889,7 @@ document.getElementById('add-oil-form').addEventListener('submit', async e => {
   const name     = document.getElementById('oil-name-input').value.trim();
   const interval = parseInt(document.getElementById('oil-interval-input').value);
   if (!name || !interval) { showToast("❌ To'ldiring", 'error'); return; }
-  const oil = { id: DB.nextId('oil'), name, interval };
+  const oil = { name, interval };
   busyStart();
   if (submitBtn) submitBtn.disabled = true;
   try {
@@ -1812,19 +1818,95 @@ document.getElementById('btn-change-svc').addEventListener('click', async () => 
   }
 });
 
-document.getElementById('btn-delete-car').addEventListener('click', async () => {
-  if (!confirm("Mashinani o'chirasizmi?")) return;
+function openDeletePinModal() {
+  if (!curCar) return;
+  const modal = document.getElementById('delete-pin-modal');
+  const title = document.getElementById('delete-pin-car-title');
+  const text = document.getElementById('delete-pin-car-text');
+  const input = document.getElementById('delete-pin-input');
+  const status = document.getElementById('delete-pin-status');
+  if (title) title.textContent = `${curCar.car_name || 'Mashina'} · ${curCar.car_number || ''}`.trim();
+  if (text) text.textContent = "Ushbu mashina ma'lumotlar bazasidan butunlay o'chadi. O'chirish uchun kirish PIN kodini kiriting.";
+  if (input) input.value = '';
+  if (status) { status.textContent = ''; status.className = 'confirm-status'; }
+  modal?.classList.add('active');
+  setTimeout(() => input?.focus(), 30);
+}
+function closeDeletePinModal(options = {}) {
+  const { clearInput = true, clearStatus = true } = options;
+  const modal = document.getElementById('delete-pin-modal');
+  const input = document.getElementById('delete-pin-input');
+  const status = document.getElementById('delete-pin-status');
+  const submit = document.getElementById('delete-pin-submit');
+  const cancel = document.getElementById('delete-pin-cancel');
+  modal?.classList.remove('active');
+  if (clearInput && input) input.value = '';
+  if (clearStatus && status) { status.textContent = ''; status.className = 'confirm-status'; }
+  if (submit) submit.disabled = false;
+  if (cancel) cancel.disabled = false;
+}
+async function submitDeletePin() {
+  const input = document.getElementById('delete-pin-input');
+  const status = document.getElementById('delete-pin-status');
+  const submit = document.getElementById('delete-pin-submit');
+  const cancel = document.getElementById('delete-pin-cancel');
+  const pin = input?.value?.trim();
+  const targetCarId = curCar?.id;
+  if (!targetCarId) {
+    closeDeletePinModal();
+    showToast('❌ Mashina topilmadi', 'error');
+    return;
+  }
+  if (!pin) {
+    if (status) { status.textContent = 'PIN kodni kiriting'; status.className = 'confirm-status error'; }
+    input?.focus();
+    return;
+  }
+  if (submit) submit.disabled = true;
+  if (cancel) cancel.disabled = true;
+  if (status) { status.textContent = 'PIN tekshirilmoqda...'; status.className = 'confirm-status'; }
   busyStart();
   try {
-    await fbDeleteCar(curCar.id);
-    document.getElementById('car-modal').classList.remove('active');
+    const verify = await apiJson(`${BACKEND_URL}/api/auth/verify-pin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin }),
+    });
+    if (!verify.ok) throw new Error(verify.error || 'PIN xato');
+    if (status) { status.textContent = "PIN to'g'ri. O'chirilmoqda..."; status.className = "confirm-status success"; }
+    await fbDeleteCar(targetCarId);
+    closeDeletePinModal();
+    document.getElementById('car-modal')?.classList.remove('active');
     curCar = null;
     await reloadDataAfterChange("✅ Mashina o'chirildi!");
   } catch (e) {
-    showToast(`❌ ${e.message || "Mashinani o'chirib bo'lmadi"}`, 'error');
+    if (String(e?.message || '').includes('PIN talab qilinadi')) {
+      closeDeletePinModal();
+      showToast('❌ Sessiya yakunlangan. Qayta kiring.', 'error');
+      return;
+    }
+    if (status) { status.textContent = e.message || 'PIN xato'; status.className = 'confirm-status error'; }
+    if (submit) submit.disabled = false;
+    if (cancel) cancel.disabled = false;
+    input?.focus();
+    input?.select?.();
   } finally {
     busyEnd();
   }
+}
+document.getElementById('btn-delete-car').addEventListener('click', () => {
+  openDeletePinModal();
+});
+document.getElementById('delete-pin-cancel')?.addEventListener('click', () => closeDeletePinModal());
+document.getElementById('delete-pin-close')?.addEventListener('click', () => closeDeletePinModal());
+document.getElementById('delete-pin-overlay')?.addEventListener('click', () => closeDeletePinModal());
+document.getElementById('delete-pin-submit')?.addEventListener('click', submitDeletePin);
+document.getElementById('delete-pin-input')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitDeletePin();
+  }
+  if (e.key === 'Escape') closeDeletePinModal();
 });
 
 // ===== SETTINGS =====

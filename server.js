@@ -377,6 +377,59 @@ async function getCfg() {
   const r = await fbGet('cfg');
   return { ok: true, cfg: { ...DEFAULT_CFG, ...(r.data || {}) } };
 }
+
+function normalizeEntityCounterName(collectionPath = '') {
+  return String(collectionPath || '').trim().replace(/[^a-zA-Z0-9_/-]+/g, '').replace(/[\/]+/g, '_') || 'default';
+}
+function numericIdsFromCollection(data = {}, prefix = '') {
+  const values = Object.entries(data || {}).map(([key, value]) => {
+    const fromBody = parseMaybeNumber(value?.id, null);
+    if (Number.isFinite(fromBody)) return Number(fromBody);
+    const fromKey = key.startsWith(prefix) ? parseMaybeNumber(key.slice(prefix.length), null) : null;
+    return Number.isFinite(fromKey) ? Number(fromKey) : null;
+  }).filter((value) => Number.isFinite(value));
+  return values;
+}
+async function reserveNextEntityId(collectionPath = '', keyPrefix = '') {
+  const counterName = normalizeEntityCounterName(collectionPath);
+  const counterPath = `_meta/counters/${counterName}`;
+  const db = initFirebaseAdmin();
+
+  if (db) {
+    try {
+      const [counterSnap, collectionSnap] = await Promise.all([
+        db.ref(counterPath).get(),
+        db.ref(collectionPath).get(),
+      ]);
+      const currentCounter = parseMaybeNumber(counterSnap.val(), 0);
+      const existingIds = numericIdsFromCollection(collectionSnap.exists() ? collectionSnap.val() : {}, keyPrefix);
+      const existingMax = existingIds.length ? Math.max(...existingIds) : 0;
+      const baseValue = Math.max(currentCounter, existingMax);
+      const tx = await db.ref(counterPath).transaction((current) => {
+        const safeCurrent = parseMaybeNumber(current, baseValue);
+        return Math.max(safeCurrent, baseValue) + 1;
+      });
+      const reservedId = parseMaybeNumber(tx.snapshot?.val?.(), null);
+      if (!tx.committed || !Number.isFinite(reservedId)) throw new Error("Yangi ID olishning imkoni bo'lmadi");
+      return { ok: true, id: Number(reservedId) };
+    } catch (e) {
+      return { ok: false, status: 0, error: e.message || 'Yangi ID olishda xato' };
+    }
+  }
+
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const collectionResult = await fbGet(collectionPath);
+    if (!collectionResult.ok) return { ok: false, status: collectionResult.status || 500, error: collectionResult.error || 'Yangi ID olishda xato' };
+    const existingIds = numericIdsFromCollection(collectionResult.data || {}, keyPrefix);
+    const candidateId = (existingIds.length ? Math.max(...existingIds) : 0) + 1;
+    const candidatePath = `${collectionPath}/${keyPrefix}${candidateId}`;
+    const candidateResult = await fbGet(candidatePath);
+    if (!candidateResult.ok) return { ok: false, status: candidateResult.status || 500, error: candidateResult.error || 'Yangi ID tekshiruvda xato' };
+    if (candidateResult.data == null) return { ok: true, id: Number(candidateId) };
+  }
+
+  return { ok: false, status: 409, error: "Yangi ID ajratib bo'lmadi" };
+}
 function resolveDevSmsToken(config = {}) {
   return String(DEVSMS_TOKEN || config.devsms_token || '').trim();
 }
@@ -849,22 +902,31 @@ app.get('/health', async (req, res) => {
   });
 });
 
-app.post('/api/auth/login', (req, res) => {
+function validatePinAttempt(req, pin) {
   const ip = getRequesterIp(req);
   const attempts = authAttempts.get(ip) || [];
   const fresh = attempts.filter((ts) => (Date.now() - ts) < AUTH_WINDOW_MS);
   if (fresh.length >= AUTH_MAX_ATTEMPTS) {
-    return res.status(429).json({ ok: false, error: 'Juda ko‘p urinish. Birozdan keyin qayta urinib ko‘ring.' });
+    return { ok: false, status: 429, error: 'Juda ko‘p urinish. Birozdan keyin qayta urinib ko‘ring.' };
   }
-  const pin = String(req.body?.pin || '').trim();
-  if (pin !== APP_PIN) {
+  if (String(pin || '').trim() !== APP_PIN) {
     fresh.push(Date.now());
     authAttempts.set(ip, fresh);
-    return res.status(401).json({ ok: false, error: 'PIN xato' });
+    return { ok: false, status: 200, error: 'PIN xato' };
   }
   authAttempts.delete(ip);
+  return { ok: true, status: 200 };
+}
+
+app.post('/api/auth/login', (req, res) => {
+  const result = validatePinAttempt(req, req.body?.pin);
+  if (!result.ok) return res.status(result.status).json(result);
   setCookie(res, COOKIE_NAME, makeSessionCookie());
   res.json({ ok: true });
+});
+app.post('/api/auth/verify-pin', requireAuth, (req, res) => {
+  const result = validatePinAttempt(req, req.body?.pin);
+  res.status(result.status).json(result);
 });
 app.get('/api/auth/me', (req, res) => {
   const cookies = parseCookies(req.headers.cookie || '');
@@ -931,8 +993,34 @@ app.post('/api/cars', async (req, res) => {
   const car = sanitizeCar(req.body || {});
   if (!car.car_name || !car.car_number) return res.status(400).json({ ok: false, error: 'Mashina nomi va raqami kerak' });
   try {
-    assertStorageResult(await fbPut(`cars/car_${car.id}`, car), "Mashina saqlash");
-    res.json({ ok: true, car });
+    const idResult = await reserveNextEntityId('cars', 'car_');
+    assertStorageResult(idResult, 'Mashina ID yaratish');
+    const createdCar = { ...car, id: Number(idResult.id), added_at: car.added_at || nowIso(), updated_at: nowIso() };
+    assertStorageResult(await fbPut(`cars/car_${createdCar.id}`, createdCar), "Mashina saqlash");
+    res.json({ ok: true, car: createdCar });
+  } catch (e) {
+    res.status(e.status || 500).json({ ok: false, error: e.message || "Mashinani saqlab bo'lmadi" });
+  }
+});
+app.put('/api/cars/:id', async (req, res) => {
+  const requestedId = parseMaybeNumber(req.params.id, null);
+  if (!Number.isFinite(requestedId)) return res.status(400).json({ ok: false, error: 'Mashina ID xato' });
+  const existing = await fbGet(`cars/car_${requestedId}`);
+  if (!existing.ok) return res.status(existing.status || 500).json({ ok: false, error: existing.error || "Mashinani o'qib bo'lmadi" });
+  if (!existing.data) return res.status(404).json({ ok: false, error: 'Mashina topilmadi' });
+  const oldCar = sanitizeCar(existing.data || {});
+  const incomingCar = sanitizeCar({ ...req.body, id: requestedId, added_at: existing.data?.added_at || req.body?.added_at || nowIso() });
+  if (!incomingCar.car_name || !incomingCar.car_number) return res.status(400).json({ ok: false, error: 'Mashina nomi va raqami kerak' });
+  const mergedCar = {
+    ...oldCar,
+    ...incomingCar,
+    id: Number(requestedId),
+    added_at: existing.data?.added_at || oldCar.added_at || incomingCar.added_at || nowIso(),
+    updated_at: nowIso(),
+  };
+  try {
+    assertStorageResult(await fbPut(`cars/car_${requestedId}`, mergedCar), "Mashina yangilash");
+    res.json({ ok: true, car: mergedCar });
   } catch (e) {
     res.status(e.status || 500).json({ ok: false, error: e.message || "Mashinani saqlab bo'lmadi" });
   }
@@ -949,8 +1037,11 @@ app.post('/api/oils', async (req, res) => {
   const oil = sanitizeOil(req.body || {});
   if (!oil.name) return res.status(400).json({ ok: false, error: 'Moy nomi kerak' });
   try {
-    assertStorageResult(await fbPut(`oils/oil_${oil.id}`, oil), "Moy saqlash");
-    res.json({ ok: true, oil });
+    const idResult = await reserveNextEntityId('oils', 'oil_');
+    assertStorageResult(idResult, 'Moy ID yaratish');
+    const createdOil = { ...oil, id: Number(idResult.id) };
+    assertStorageResult(await fbPut(`oils/oil_${createdOil.id}`, createdOil), "Moy saqlash");
+    res.json({ ok: true, oil: createdOil });
   } catch (e) {
     res.status(e.status || 500).json({ ok: false, error: e.message || "Moyni saqlab bo'lmadi" });
   }
