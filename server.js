@@ -75,10 +75,11 @@ function initFirebaseAdmin() {
 initFirebaseAdmin();
 
 const APPROVED_TEMPLATES = {
-  service_done: `Hurmatli mijoz,
-{car_name} ({car_number}) avtomobili bo'yicha quyidagi ma'lumot qayd etildi: "{service_name}"
+  service_done: `Hurmatli mijoz, {car_name} {car_number} avtomobili {service_name}
 Sana: {date}
-Joriy probeg: {km} km`,
+Joriy probeg: {km} km
+Manzil: Avto Oil Beshariq, tekstil yonida
+Tel: +998943527070 +998972108070`,
   service_reminder: `Hurmatli mijoz, {car_name} ({car_number}) avtomobili bo'yicha {service_name} tavsiya etiladi.
 Sana: {date}.
 Joriy probeg: {km} km.
@@ -334,6 +335,7 @@ function normalizeLoadedCar(body = {}) {
     oil_filter_interval: parseMaybeNumber(body.oil_filter_interval, 10000),
     history: normalizeHistoryItems(body.history, total_km, body.added_at || body.updated_at || nowIso()),
     added_at: body.added_at || nowIso(),
+    has_real_added_at: !!body.added_at,
     updated_at: body.updated_at || body.added_at || nowIso(),
   };
 }
@@ -488,10 +490,10 @@ function getServicePhrase(serviceKey = '', mode = 'done', car = {}) {
   const key = String(serviceKey || '').trim();
   if (key === 'oil') {
     const oilName = titleCaseWords(car.oil_name || 'moy');
-    return mode === 'due' ? `moy ${oilName} ni almashtirish` : `Moy ${oilName} almashtirildi`;
+    return mode === 'due' ? `moy ${oilName} ni almashtirish` : `${oilName} moyi almashtirildi`;
   }
   if (key === 'gearbox') {
-    return mode === 'due' ? 'karobka moyini almashtirish' : 'Karobka moyi almashtirildi';
+    return mode === 'due' ? 'karobka moyini almashtirish' : 'karobka moyi almashtirildi';
   }
   const meta = SVC_META[key] || {};
   return mode === 'due' ? (meta.label ? `${String(meta.label).toLowerCase()}ni almashtirish` : 'texnik xizmatni bajarish') : (meta.label ? `${meta.label} almashtirildi` : 'Texnik xizmat bajarildi');

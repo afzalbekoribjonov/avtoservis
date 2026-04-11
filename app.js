@@ -162,10 +162,11 @@ const DEFAULT_SMS = {
   enabled: true,
   test_phone: '',
   sms_sent_count: 0,
-  service_done_message: `Hurmatli mijoz,
-{car_name} ({car_number}) avtomobili bo'yicha quyidagi ma'lumot qayd etildi: "{service_name}"
+  service_done_message: `Hurmatli mijoz, {car_name} {car_number} avtomobili {service_name}
 Sana: {date}
-Joriy probeg: {km} km`,
+Joriy probeg: {km} km
+Manzil: Avto Oil Beshariq, tekstil yonida
+Tel: +998943527070 +998972108070`,
   service_due_message: `Hurmatli mijoz, {car_name} ({car_number}) avtomobili bo'yicha {service_name} tavsiya etiladi.
 Sana: {date}.
 Joriy probeg: {km} km.
@@ -292,6 +293,14 @@ function badgeOf(u) {
 }
 function nowDate() { return new Date().toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' }); }
 function nowTime() { return new Date().toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' }); }
+function formatAddedAtDisplay(car) {
+  if (!car?.has_real_added_at || !car?.added_at) return 'Aniqlanmadi';
+  const d = new Date(car.added_at);
+  if (Number.isNaN(d.getTime())) return 'Aniqlanmadi';
+  const datePart = d.toLocaleDateString('uz-UZ', { year: 'numeric', month: '2-digit', day: '2-digit' });
+  const timePart = d.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
+  return `${datePart} ${timePart}`;
+}
 
 // ===== BACKEND — YUKLASH =====
 // Barcha ma'lumotlarni backend orqali yuklaydi.
@@ -605,10 +614,10 @@ function getServicePhrase(serviceKey = '', mode = 'done', car = {}) {
   const key = String(serviceKey || '').trim();
   if (key === 'oil') {
     const oilName = titleCaseWords(car.oil_name || 'moy');
-    return mode === 'due' ? `moy ${oilName} ni almashtirish` : `Moy ${oilName} almashtirildi`;
+    return mode === 'due' ? `moy ${oilName} ni almashtirish` : `${oilName} moyi almashtirildi`;
   }
   if (key === 'gearbox') {
-    return mode === 'due' ? 'karobka moyini almashtirish' : 'Karobka moyi almashtirildi';
+    return mode === 'due' ? 'karobka moyini almashtirish' : 'karobka moyi almashtirildi';
   }
   const meta = SVC_META[key] || {};
   return mode === 'due' ? (meta.label ? `${String(meta.label).toLowerCase()}ni almashtirish` : 'texnik xizmatni bajarish') : (meta.label ? `${meta.label} almashtirildi` : 'Texnik xizmat bajarildi');
@@ -1651,6 +1660,7 @@ function openModal(options = {}) {
 
   document.getElementById('modal-car-info').innerHTML = `
     <h3>${curCar.car_name}</h3><p>${curCar.car_number}</p>
+    <p style="margin-top:4px;font-size:12px;opacity:.85">🕒 Qo'shildi: <strong>${escHtml(formatAddedAtDisplay(curCar))}</strong></p>
     <p style="margin-top:4px;font-size:12px;opacity:.85">🏁 Probeg: <strong>${curCar.total_km.toLocaleString()} km</strong></p>
     <p style="margin-top:4px;font-size:12px;opacity:.85">📅 Eng yaqin muddat: <strong>${escHtml(getNearestDueSummary(curCar))}</strong></p>`;
 
